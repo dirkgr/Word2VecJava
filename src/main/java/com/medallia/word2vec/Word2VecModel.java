@@ -1,16 +1,16 @@
 package com.medallia.word2vec;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.io.*;
 import java.nio.*;
 import java.nio.channels.FileChannel;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Doubles;
 import com.medallia.word2vec.thrift.Word2VecModelThrift;
@@ -33,16 +33,17 @@ import com.medallia.word2vec.util.AC;
 public class Word2VecModel {
 	final List<String> vocab;
 	final int layerSize;
-	final DoubleBuffer vectors;
+	public final DoubleBuffer vectors;
 	private final static long ONE_GB = 1024 * 1024 * 1024;
 
 	Word2VecModel(Iterable<String> vocab, int layerSize, DoubleBuffer vectors) {
+		assert vectors.capacity() == Iterables.size(vocab) * layerSize;
 		this.vocab = ImmutableList.copyOf(vocab);
 		this.layerSize = layerSize;
 		this.vectors = vectors;
 	}
 
-	Word2VecModel(Iterable<String> vocab, int layerSize, double[] vectors) {
+	public Word2VecModel(Iterable<String> vocab, int layerSize, double[] vectors) {
 		this(vocab, layerSize, DoubleBuffer.wrap(vectors));
 	}
 
@@ -208,6 +209,30 @@ public class Word2VecModel {
 
 			return new Word2VecModel(vocabs, layerSize, vectors);
 		}
+	}
+
+	public void toBinFile(final OutputStream out) throws IOException {
+		final Charset cs = Charset.forName("UTF-8");
+		final String header = String.format("%d %d\n", vocab.size(), layerSize);
+		out.write(header.getBytes(cs));
+
+		final double[] vector = new double[layerSize];
+		final ByteBuffer buffer = ByteBuffer.allocate(4 * layerSize);
+		buffer.order(ByteOrder.LITTLE_ENDIAN);
+		for(int i = 0; i < vocab.size(); ++i) {
+			out.write(String.format("%s ", vocab.get(i)).getBytes(cs));
+
+			vectors.position(i * layerSize);
+			vectors.get(vector);
+			buffer.clear();
+			for(int j = 0; j < layerSize; ++j)
+				buffer.putFloat((float)vector[j]);
+			out.write(buffer.array());
+
+			out.write('\n');
+		}
+
+		out.flush();
 	}
 
 	/**
